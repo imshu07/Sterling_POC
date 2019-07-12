@@ -1,0 +1,898 @@
+
+  
+
+
+	
+BCBSRI_EDI_Batch_ArchiveAndSplit_Inbound	Version: 	5 
+Document Tracking: 	False 	Set onfault processing: 	False 
+Start Mode: 	async 	Transaction: 	False 
+Queue: 	5 	Persistence Level: 	System Default 
+Recovery Level: 	Manual 	Document Storage Type: 	System Default 
+Softstop Recovery Level: 	Manual 
+Life Span: 	 	Complete by - Deadline: 	None Available 
+Event Reporting Level: 	None 
+
+	
+Description: fix for medA medB
+Business Process Definition: 
+<process name="BCBSRI_EDI_Batch_ArchiveAndSplit_Inbound">
+	<rule name="MoreDocs">
+		<condition>DocExtract.DONE=0</condition>
+	</rule>
+	<rule name="COB">
+		<condition>contains(string(DestinationMessageName),'aki330') or contains(string(DestinationMessageName),'aki331') or contains(string(DestinationMessageName),'aki332') or contains(string(DestinationMessageName),'tri507') or contains(string(DestinationMessageName),'tri508') or contains(string(DestinationMessageName),'tri509')</condition>
+	</rule>
+	<rule name="837i_cob_Plan65">
+		<condition>contains(string(DestinationMessageName),'aki330')</condition>
+	</rule>
+	<rule name="837i_cob_FEP">
+		<condition>contains(string(DestinationMessageName),'aki331')</condition>
+	</rule>
+	<rule name="837i_cob_BCBS">
+		<condition>contains(string(DestinationMessageName),'aki332')</condition>
+	</rule>
+	<rule name="837p_cob_Plan65">
+		<condition>contains(string(DestinationMessageName),'tri507')</condition>
+	</rule>
+	<rule name="837p_cob_FEP">
+		<condition>contains(string(DestinationMessageName),'tri508')</condition>
+	</rule>
+	<rule name="837p_cob_BCBS">
+		<condition>contains(string(DestinationMessageName),'tri509')</condition>
+	</rule>
+	<rule name="837i">
+		<condition>string(message_to_child/EDI/Receipt/Version) = '005010X223A2'</condition>
+	</rule>
+	<rule name="837p">
+		<condition>string(message_to_child/EDI/Receipt/Version) = '005010X222A1'</condition>
+	</rule>
+	<rule name="837d">
+		<condition>string(message_to_child/EDI/Receipt/Version) = '005010X224A2'</condition>
+	</rule>
+	<rule name="NewTransactionType">
+		<condition>string-length(EDI/Temp/TransactionType) != 0</condition>
+	</rule>
+    <rule name="837?">
+		<condition>string(message_to_child/EDI/Receipt/TransactionType) = '837'</condition>
+    </rule>
+	<rule name="837_WFID">
+		<condition>string(TransactionType1) = '837'</condition>
+	</rule>
+	<rule name="278BX?">
+		<condition>string(message_to_child/EDI/Receipt/TransactionType) = '278BX'</condition>
+	</rule>
+	<rule name="27813BX?">
+		<condition>contains(string(message_to_child/EDI/Receipt/OrigFileName),'27813.Q')</condition>
+	</rule>
+	<rule name="27811BX?">
+		<condition>contains(string(message_to_child/EDI/Receipt/OrigFileName),'27811.Q')</condition>
+	</rule>
+	<rule name="278_NonBX?">
+		<condition>string(message_to_child/EDI/Receipt/TransactionType) = '278'</condition>
+	</rule>
+	<rule name="Doc-Extract-Exception">
+		<condition>string(OnFault/ErrorCode) = 'Doc-Extract-Exception'</condition>
+	</rule>
+	<rule name="HasErrorMessage">
+		<condition>string-length(ErrorMessage) != 0</condition>
+	</rule>
+	<rule name="SenderException">
+		<condition>contains(SenderExceptions,string(ProducerName))</condition>
+	</rule>
+	<rule name="SendersMatch">
+		<condition>string(*[contains(name(),'DOC-SPLIT-')][1]/SenderID) = string(ProducerName)</condition>
+	</rule>
+	<rule name="Continue">
+		<condition>number(Continue) = 1</condition>
+	</rule>
+
+	<sequence name="Begin">
+		<!-- Sequence of events to normalize EDI data from MF before processing it -->
+		<choice>
+			<select>
+				<case ref="COB" activity="NormalizeCOBData"/>
+			</select>
+			
+			<sequence name="NormalizeCOBData">
+				<!-- change document name to in1 -->
+				<operation name="Change doc name to in1">
+					<participant name="GetDocumentInfoService"/>
+					<output message="GetDocumentInfoServiceMessage">
+						<assign to="." from="*"/>
+						<assign to="updateMetaDataOnly">true</assign>
+						<assign to="DocumentName">in1</assign>
+					</output>
+					<input message="inmsg" />
+				</operation>
+
+				<!-- assign first input to DOC/DOC-1 -->
+				<assign to="DOC/DOC-1" from="PrimaryDocument/@SCIObjectID" append="true"/>
+
+				<!-- call the map! -->
+				<operation name="SPETransformationService">
+					<participant name="SPETransformationService"/>
+					<output message="SPEMessage">
+						<assign to="." from="*"/>
+						<assign to="MapType">WTX</assign>
+						<assign to="MapName">bcbsri_837_cob_normalize_x12</assign>
+						<assign to="PersistIntermediateDoc">false</assign>
+						<assign to="SPEContextParms.Use_Supporting_Resources">YES</assign>
+						<assign to="SPEContextParms.Use_Primary_Document_With_Supporting_Resources">NO</assign>
+						<assign to="out1">/ProcessData/PrimaryDocument</assign>
+						<assign to="UseSPEDocNames">true</assign>
+						<assign to="NumberOfOutputCards">1</assign>
+					</output>
+					<input message="inmsg">
+						<assign to="PrimaryDocument" from="ProcessData/OutputCard1/@SCIObjectID"/>
+					</input>
+				</operation>
+
+				<operation name="Release DOC">
+					<participant name="ReleaseService"/>
+					<output message="Xout">
+						<assign to="." from="*"/>
+						<assign to="TARGET">DOC</assign>
+					</output>
+					<input message="Xin">
+						<assign to="." from="*"/>
+					</input>
+				</operation>			 
+				 
+			</sequence> <!-- End sequence NormalizeData -->
+		</choice>
+		
+		<operation name="Change doc name to in1">
+					<participant name="GetDocumentInfoService"/>
+					<output message="GetDocumentInfoServiceMessage">
+						<assign to="." from="*"/>
+						<assign to="updateMetaDataOnly">true</assign>
+						<assign to="DocumentName">x12_in</assign>
+					</output>
+					<input message="inmsg" />
+				</operation>
+
+				<!-- assign first input to DOC/DOC-1 -->
+				<assign to="DOC/DOC-1" from="PrimaryDocument/@SCIObjectID" append="true"/>
+		
+		<operation name="ITXATransformation">
+				<participant name="SPETransformationService"/>
+				<output message="SPEMessage">
+					<assign to="." from="*"/>
+					<assign to="MapType">WTX</assign>
+					
+					<assign to="MapName">bcbsri_parsing_presplitter2</assign>
+					<assign to="PersistIntermediateDoc">false</assign>
+					<assign to="SPEContextParms.Use_Supporting_Resources">YES</assign>
+					<assign to="SPEContextParms.Use_Primary_Document_With_Supporting_Resources">NO</assign>
+					<assign to="NumberOfOutputCards">2</assign>
+					<assign to="UseSPEDocNames">true</assign>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"/>
+				</input>
+			</operation>
+		           <assign to="TransactionType1" from="string(/ProcessData/ST01)"></assign>
+		<choice>
+			<select>
+				<case ref="837_WFID" activity="837_Archive"/>
+		        <case ref="837_WFID" negative="true" activity="Archive"/>
+			</select>
+		
+			
+	<sequence name="837_Archive">
+	    <choice>
+			<select>
+				<case ref="COB" activity="MEDFILES"/>
+		        <case ref="COB" negative="true" activity="ONLY837"/>
+			</select>
+			
+			
+			  <sequence name="ONLY837">
+		     <operation name="Get Workflow Info">
+					<participant name="BPMetaDataInfoService"/>
+					<output message="BPMetaDataServiceInputMessage">
+						<assign to="." from="*"/>
+						<assign to="DISPOSITION">false</assign>
+						<assign to="LINKAGE">false</assign>
+					</output>
+					<input message="inmsg">
+						<assign to="WFID_837" from="string(BPDATA/WORKFLOW_ID)" append="true"/>
+						<assign to="BPNAME" from="string(BPDATA/WFD_NAME)" append="true"/>
+					</input>
+				</operation>
+			<!-- Create input for File Name Parsing BP -->
+			<operation name="File renaming assigns">
+				<participant name="AssignService"/>
+				<output message="AssignMessage">
+					<assign to="." from="*"/>
+				
+	<assign to="Utility/ParseFileName/Input" from="sci-get-property('bcbsri_edi_batch',concat(string(EDI/Receipt/Environment),'.Inbound.Receipt.Archive.837.FileNamePattern'))"></assign>
+				
+					<assign to="Utility/ParseFileName/OrigFileName" from="string(DestinationMessageName)"/>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"/>
+				</input>
+			</operation>
+			
+			<operation name="Invoke BCBSRI_EDI_Utility_ParseFileNamePattern1 BP">
+				<participant name="InlineInvokeSubProcessService"/>
+				<output message="InvokeSubProcessServiceTypeInputMessage">
+					<assign to="." from="*"></assign>
+					<assign to="WFD_NAME">BCBSRI_EDI_Utility_ParseFileNamePattern</assign>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"></assign>
+				</input>
+			</operation>
+
+			<!-- Create message_to_child for Archive BP -->
+			<operation name="Build message_to_child">
+				<participant name="AssignService"/>
+				<output message="AssignOutputMessage">
+					<assign to="." from="*"></assign>
+					<assign to="message_to_child/PrimaryDocument" from="PrimaryDocument/@SCIObjectID"></assign>
+					<assign to="message_to_child/archive/@directory" from="sci-get-property(&apos;bcbsri_edi_batch&apos;,concat(string(EDI/Receipt/Environment),'.Inbound.Receipt.Archive.Directory'))"></assign>
+					<assign to="message_to_child/archive/@filename" from="string(Utility/ParseFileName/Output)"></assign>
+				</output>
+				<input message="AssignInputMessage">
+					<assign to="." from="*"></assign>
+				</input>
+			</operation>
+
+			<!-- Invoke Archive BP -->
+			<operation name="Invoke BCBSRI_EDI_Utility_Archive BP">
+				<participant name="InvokeSubProcessService"/>
+				<output message="InvokeSubProcessServiceTypeInputMessage">
+					<assign to="." from="*"></assign>
+					<assign to="INVOKE_MODE">ASYNC</assign>
+					<assign to="WFD_NAME">BCBSRI_EDI_Utility_Archive</assign>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"></assign>
+				</input>
+			</operation>
+
+			<!-- Release message_to_child -->
+			<operation name="Release message_to_child">
+				<participant name="ReleaseService"/>
+				<output message="ReleaseServiceInputMessage">
+					<assign to="." from="*"></assign>
+					<assign to="TARGET">message_to_child</assign>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"></assign>
+				</input>
+			</operation>
+		</sequence>
+		
+		<sequence name="MEDFILES">
+			<!-- Create input for File Name Parsing BP -->
+			<operation name="File renaming assigns">
+				<participant name="AssignService"/>
+				<output message="AssignMessage">
+					<assign to="." from="*"/>
+					<assign to="Utility/ParseFileName/Input" from="sci-get-property('bcbsri_edi_batch',concat(string(EDI/Receipt/Environment),'.Inbound.Receipt.Archive.',if(contains(string(DestinationMessageName),'aki330'),'aki330.',if(contains(string(DestinationMessageName),'aki331'),'aki331.',if(contains(string(DestinationMessageName),'aki332'),'aki332.',if(contains(string(DestinationMessageName),'tri507'),'tri507.',if(contains(string(DestinationMessageName),'tri508'),'tri508.',if(contains(string(DestinationMessageName),'tri509'),'tri509.','')))))),'FileNamePattern'))"></assign>
+					<assign to="Utility/ParseFileName/OrigFileName" from="string(DestinationMessageName)"/>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"/>
+				</input>
+			</operation>
+			
+			<operation name="Invoke BCBSRI_EDI_Utility_ParseFileNamePattern1 BP">
+				<participant name="InlineInvokeSubProcessService"/>
+				<output message="InvokeSubProcessServiceTypeInputMessage">
+					<assign to="." from="*"></assign>
+					<assign to="WFD_NAME">BCBSRI_EDI_Utility_ParseFileNamePattern</assign>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"></assign>
+				</input>
+			</operation>
+
+			<!-- Create message_to_child for Archive BP -->
+			<operation name="Build message_to_child">
+				<participant name="AssignService"/>
+				<output message="AssignOutputMessage">
+					<assign to="." from="*"></assign>
+					<assign to="message_to_child/PrimaryDocument" from="PrimaryDocument/@SCIObjectID"></assign>
+					<assign to="message_to_child/archive/@directory" from="sci-get-property(&apos;bcbsri_edi_batch&apos;,concat(string(EDI/Receipt/Environment),'.Inbound.Receipt.Archive.Directory'))"></assign>
+					<assign to="message_to_child/archive/@filename" from="string(Utility/ParseFileName/Output)"></assign>
+				</output>
+				<input message="AssignInputMessage">
+					<assign to="." from="*"></assign>
+				</input>
+			</operation>
+
+			<!-- Invoke Archive BP -->
+			<operation name="Invoke BCBSRI_EDI_Utility_Archive BP">
+				<participant name="InvokeSubProcessService"/>
+				<output message="InvokeSubProcessServiceTypeInputMessage">
+					<assign to="." from="*"></assign>
+					<assign to="INVOKE_MODE">ASYNC</assign>
+					<assign to="WFD_NAME">BCBSRI_EDI_Utility_Archive</assign>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"></assign>
+				</input>
+			</operation>
+
+			<!-- Release message_to_child -->
+			<operation name="Release message_to_child">
+				<participant name="ReleaseService"/>
+				<output message="ReleaseServiceInputMessage">
+					<assign to="." from="*"></assign>
+					<assign to="TARGET">message_to_child</assign>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"></assign>
+				</input>
+			</operation>
+		</sequence>
+		</choice>
+
+		
+		</sequence>
+	
+		<sequence name="Archive">
+			<!-- Create input for File Name Parsing BP -->
+			<operation name="File renaming assigns">
+				<participant name="AssignService"/>
+				<output message="AssignMessage">
+					<assign to="." from="*"/>
+					<assign to="Utility/ParseFileName/Input" from="sci-get-property('bcbsri_edi_batch',concat(string(EDI/Receipt/Environment),'.Inbound.Receipt.Archive.',if(contains(string(DestinationMessageName),'aki330'),'aki330.',if(contains(string(DestinationMessageName),'aki331'),'aki331.',if(contains(string(DestinationMessageName),'aki332'),'aki332.',if(contains(string(DestinationMessageName),'tri507'),'tri507.',if(contains(string(DestinationMessageName),'tri508'),'tri508.',if(contains(string(DestinationMessageName),'tri509'),'tri509.','')))))),'FileNamePattern'))"></assign>
+					<assign to="Utility/ParseFileName/OrigFileName" from="string(DestinationMessageName)"/>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"/>
+				</input>
+			</operation>
+			
+			<operation name="Invoke BCBSRI_EDI_Utility_ParseFileNamePattern1 BP">
+				<participant name="InlineInvokeSubProcessService"/>
+				<output message="InvokeSubProcessServiceTypeInputMessage">
+					<assign to="." from="*"></assign>
+					<assign to="WFD_NAME">BCBSRI_EDI_Utility_ParseFileNamePattern</assign>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"></assign>
+				</input>
+			</operation>
+
+			<!-- Create message_to_child for Archive BP -->
+			<operation name="Build message_to_child">
+				<participant name="AssignService"/>
+				<output message="AssignOutputMessage">
+					<assign to="." from="*"></assign>
+					<assign to="message_to_child/PrimaryDocument" from="PrimaryDocument/@SCIObjectID"></assign>
+					<assign to="message_to_child/archive/@directory" from="sci-get-property(&apos;bcbsri_edi_batch&apos;,concat(string(EDI/Receipt/Environment),'.Inbound.Receipt.Archive.Directory'))"></assign>
+					<assign to="message_to_child/archive/@filename" from="string(Utility/ParseFileName/Output)"></assign>
+				</output>
+				<input message="AssignInputMessage">
+					<assign to="." from="*"></assign>
+				</input>
+			</operation>
+
+			<!-- Invoke Archive BP -->
+			<operation name="Invoke BCBSRI_EDI_Utility_Archive BP">
+				<participant name="InvokeSubProcessService"/>
+				<output message="InvokeSubProcessServiceTypeInputMessage">
+					<assign to="." from="*"></assign>
+					<assign to="INVOKE_MODE">ASYNC</assign>
+					<assign to="WFD_NAME">BCBSRI_EDI_Utility_Archive</assign>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"></assign>
+				</input>
+			</operation>
+
+			<!-- Release message_to_child -->
+			<operation name="Release message_to_child">
+				<participant name="ReleaseService"/>
+				<output message="ReleaseServiceInputMessage">
+					<assign to="." from="*"></assign>
+					<assign to="TARGET">message_to_child</assign>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"></assign>
+				</input>
+			</operation>
+		</sequence>
+		</choice>
+					
+		<assign to="ExtractMap" from="sci-get-property('bcbsri_edi_batch',concat(string(EDI/Receipt/Environment),'.Inbound.Receipt.ExtractMap'))"/>
+	
+		<!-- Begin document extraction process -->
+		<sequence name="DocumentExtraction">
+			<!-- change document name to in1 -->
+			<operation name="Change doc name to in1">
+				<participant name="GetDocumentInfoService"/>
+				<output message="GetDocInfoServiceMessage">
+					<assign to="." from="*"/>
+					<assign to="updateMetaDataOnly">true</assign>
+					<assign to="DocumentName">in1</assign>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"/>
+				</input>
+			</operation>
+			
+			<!-- assign first input to DOC/DOC-1 -->
+			<assign to="DOC/DOC-1" from="PrimaryDocument/@SCIObjectID" append="true"/>
+		
+			<!-- Split the data using SPE Transformation Service -->
+			<operation name="ITXATransformation">
+				<participant name="SPETransformationService"/>
+				<output message="SPEMessage">
+					<assign to="." from="*"/>
+					<assign to="MapType">WTX</assign>
+					<assign to="MapName" from="string(ExtractMap)"/>
+					<assign to="PersistIntermediateDoc">false</assign>
+					<assign to="SPEContextParms.Use_Supporting_Resources">YES</assign>
+					<assign to="SPEContextParms.Use_Primary_Document_With_Supporting_Resources">NO</assign>
+					<assign to="NumberOfOutputCards">1</assign>
+					<assign to="UseSPEDocNames">true</assign>
+				</output>
+				<input message="inmsg">
+					<assign to="." from="*"/>
+				</input>
+			</operation>
+
+			<onFault>
+				<sequence name="WTXMapService_OnFault_Begin">
+					<assign to="OnFault/ErrorCode">DocExtractException</assign>
+				
+					<operation name="generateException_Doc-Extract-Exception">
+						<participant name="BPExceptionService"/>
+						<output message="Xout">
+							<assign to="." from="*"/>
+							<assign to="exceptionCode">Doc-Extract-Exception</assign>
+						</output>
+						<input message="Xin">
+							<assign to="." from="*"/>
+						</input>
+					</operation>
+
+				</sequence>
+			</onFault>
+		</sequence>
+				
+		<choice name="Check_HasErrorMessage">
+			<select>
+				<case ref="HasErrorMessage" activity="Throw_InvalidDataException"/>
+				<case ref="HasErrorMessage" negative="true" activity="ContinueProcessing"/>
+			</select>
+			
+			<sequence name="Throw_InvalidDataException">
+				<assign to="OnFault/ErrorCode" append="true">Data-Non-Compliant</assign>
+				
+				<operation name="Invoke BCBSRI_EDI_Batch_HandleRejects BP async">
+					<participant name="InvokeSubProcessService"/>
+					<output message="InvokeSubProcessServiceTypeInputMessage">
+						<assign to="." from="*"></assign>
+						<assign to="INVOKE_MODE">ASYNC</assign>
+						<assign to="WFD_NAME">BCBSRI_EDI_Batch_HandleRejects</assign>
+					</output>
+					<input message="inmsg">
+						<assign to="." from="*"></assign>
+					</input>
+				</operation>
+								
+				<operation name="generateException_Data-Non-Compliant">
+					<participant name="BPExceptionService"/>
+					<output message="Xout">
+						<assign to="." from="*"/>
+						<assign to="exceptionCode">Data-Non-Compliant</assign>
+					</output>
+					<input message="Xin">
+						<assign to="." from="*"/>
+					</input>
+				</operation>
+
+			</sequence> <!-- End sequence Throw_InvalidDataException -->
+			
+			<sequence name="ContinueProcessing">
+				<assign to="Temp/Processed/GS01" from="string(*[contains(name(),'DOC-SPLIT-')][1]/Version)"/>
+				<assign to="Temp/Processed/ST01" from="string(*[contains(name(),'DOC-SPLIT-')][1]/ST01)"/>
+				
+				
+				<assign to="SenderExceptions" from="sci-get-property('bcbsri_edi_batch',concat(string(EDI/Receipt/Environment),'.',string(EDI/Receipt/Direction),'.SenderExceptions'))"/>
+				<choice name="Check_SendersMatch">
+					<select>
+						<case ref="SendersMatch" activity="SendersMatch" />
+						<case ref="SendersMatch" negative="true" activity="SendersMismatch" />
+					</select>
+					
+					<sequence name="SendersMatch">
+						<assign to="Continue">1</assign>
+					</sequence> <!-- End sequence SendersMatch -->
+					
+					<sequence name="SendersMismatch">
+						<choice name="Check_SendersException">
+							<select>
+								<case ref="SenderException" activity="SenderException" />
+								<case ref="SenderException" negative="true" activity="SenderNoException" />
+							</select>
+							
+							<sequence name="SenderException">
+								<assign to="Continue">1</assign>
+							</sequence> <!-- End sequence SenderException -->
+							
+							<sequence name="SenderNoException">
+								<assign to="Continue">0</assign>
+								
+								<assign to="OnFault/ErrorCode">Invalid-Sender</assign>
+								
+								<operation name="Invoke BCBSRI_EDI_Batch_HandleRejects BP async">
+									<participant name="InvokeSubProcessService"/>
+									<output message="InvokeSubProcessServiceTypeInputMessage">
+										<assign to="." from="*"></assign>
+										<assign to="INVOKE_MODE">ASYNC</assign>
+										<assign to="WFD_NAME">BCBSRI_EDI_Batch_HandleRejects</assign>
+									</output>
+									<input message="inmsg">
+										<assign to="." from="*"></assign>
+									</input>
+								</operation>
+								
+								<operation name="Generate exception">
+									<participant name="BPExceptionService"/>
+									<output message="Xout">
+										<assign to="." from="*"/>
+										<assign to="exceptionCode">Invalid-Sender</assign>
+									</output>
+									<input message="Xin">
+										<assign to="." from="*"/>
+									</input>
+								</operation>
+												
+							</sequence> <!-- End sequence SenderNoException -->
+							
+						</choice>
+					</sequence> <!-- End sequence SendersMismatch -->
+					
+				</choice>
+				
+				<choice name="Check_Continue">
+					<select>
+						<case ref="Continue" activity="Continue"/>
+					</select>
+					
+					<sequence name="Continue">					
+						<sequence name="ForEachDocument_Loop">
+							<operation name="For Each Document">
+								<participant name="ForEachDocument"/>
+								<output message="ForEachDocumentTypeInputMessage">
+									<assign to="." from="*"></assign>
+									<assign to="DOCUMENT_KEY_PREFIX">DOC-SPLIT-</assign>
+									<assign to="ITERATOR_NAME">DocExtract</assign>
+								</output>
+								<input message="inmsg">
+									<assign to="." from="*"></assign>
+								</input>
+							</operation>
+
+							<choice>
+								<select>
+									<case ref="MoreDocs" activity="ProcessDocument"/>
+								</select>
+
+								<sequence name="ProcessDocument">
+									<operation name="Build message_to_child">
+										<participant name="AssignService"/>
+										<output message="AssignOutputMessage">
+											<assign to="." from="*"></assign>
+											<assign to="message_to_child/PrimaryDocument" from="PrimaryDocument/@SCIObjectID"></assign>
+											<assign to="message_to_child/EDI/Receipt/ISASenderID" from="string(//*[name()=string(/ProcessData/DocExtract.NAME)]/SenderID)"></assign>
+											<assign to="message_to_child/EDI/Receipt/ISAReceiverID" from="string(//*[name()=string(/ProcessData/DocExtract.NAME)]/ReceiverID)"></assign>
+											<assign to="message_to_child/EDI/Receipt/TransactionType" from="string(//*[name()=string(/ProcessData/DocExtract.NAME)]/ST01)"></assign>
+											<assign to="message_to_child/EDI/Receipt/Version" from="string(//*[name()=string(/ProcessData/DocExtract.NAME)]/Version)"></assign>
+											<assign to="message_to_child/EDI/Receipt/FG_ControlNumber" from="string(//*[name()=string(/ProcessData/DocExtract.NAME)]/FG_ControlNumber)"></assign>
+											<assign to="message_to_child/EDI/Receipt/Sender" from="string(ProducerName)" append="true"></assign>
+											<assign to="message_to_child/EDI/Receipt/Receiver" from="string(ConsumerName)" append="true"></assign>
+											<assign to="message_to_child/EDI/Receipt/OrigFileName" from="string(DestinationMessageName)" append="true"></assign>
+											<assign to="message_to_child/EDI/Receipt/FileName" from="string(Utility/ParseFileName/Output)" append="true"></assign>
+											<assign to="message_to_child/EDI/Receipt/TraceNumber" from="string(//*[name()=string(/ProcessData/DocExtract.NAME)]/TRN02)"></assign>
+											<assign to="message_to_child/EDI/Receipt/." from="EDI/Receipt/*" append="true"></assign>
+										</output>
+										<input message="AssignInputMessage">
+											<assign to="." from="*"></assign>
+										</input>
+									</operation>
+					  
+									<!-- Query BCBSRI_EDI_Batch_SenderLookup Code List for senders of transactions in a specific LOB -->
+									<operation name="Query BCBSRI_EDI_Batch_SenderLookup">
+										<participant name="LightweightJDBCAdapterQuery"/>
+										<output message="LWJDBCInputMessage">
+											<assign to="." from="*"/>
+											<assign to="param1" from="concat('BCBSRI_EDI_Batch_SenderLookup_',string(EDI/Receipt/Environment))"/>
+											<assign to="paramtype1">String</assign>
+											<assign to="param2" from="string(message_to_child/EDI/Receipt/ISASenderID)"/>
+											<assign to="paramtype2">String</assign>
+											<assign to="param3" from="string(message_to_child/EDI/Receipt/TransactionType)"/>
+											<assign to="paramtype3">String</assign>
+											<assign to="pool">oraclePool_NoTrans</assign>
+											<assign to="query_type">SELECT</assign>
+											<assign to="result_name">Result</assign>
+											<assign to="row_name">Row</assign>
+											<assign to="sql">SELECT A.TEXT1 AS TRANSACTIONTYPE FROM CODELIST_XREF_ITEM A, CODELIST_XREF_VERS B WHERE A.LIST_NAME = B.LIST_NAME AND A.LIST_VERSION = B.DEFAULT_VERSION AND A.LIST_NAME = ? AND UPPER(A.SENDER_ITEM) = UPPER(?) AND UPPER(A.RECEIVER_ITEM) = UPPER(?)</assign>
+										</output>
+										<input message="inmsg">
+											<assign to="EDI/Temp/TransactionType" from="string(DocToDOM(PrimaryDocument)/Row/TRANSACTIONTYPE)" append="true"/>
+										</input>
+									</operation>
+					  
+									<choice>
+										<select>
+											<case ref="NewTransactionType" activity="AssignNewTransactionType1"/>
+										</select>
+
+										<sequence name="AssignNewTransactionType1">
+											<assign to="message_to_child/EDI/Receipt/TransactionType" from="string(EDI/Temp/TransactionType)"/>
+										</sequence>
+										
+									</choice>
+									
+									<!-- Some additional checks here to alter the transaction type, if necessary -->
+									<choice>
+										<select>
+											<case ref="COB" activity="Assign_COBType"/>
+											<case ref="837?" activity="Assign_837Type"/>
+											<case ref="278BX?" activity="Assign_278BXType"/>
+											<case ref="278_NonBX?" activity="Assign_27813"/>
+										</select>
+										
+										<sequence name="Assign_COBType">
+											<choice name="Check_COBType">
+												<select>
+													<case ref="837i_cob_Plan65" activity="Assign_837i_cob_Plan65"/>
+													<case ref="837i_cob_FEP" activity="Assign_837i_cob_FEP"/>
+													<case ref="837i_cob_BCBS" activity="Assign_837i_cob_BCBS"/>
+													<case ref="837p_cob_Plan65" activity="Assign_837p_cob_Plan65"/>
+													<case ref="837p_cob_FEP" activity="Assign_837p_cob_FEP"/>
+													<case ref="837p_cob_BCBS" activity="Assign_837p_cob_BCBS"/>
+												</select>
+												
+												<sequence name="Assign_837i_cob_Plan65">
+													<assign to="message_to_child/EDI/Receipt/TransactionType">837i_cob_Plan65</assign>
+												</sequence> <!-- End sequence Assign_837i_cob_Plan65 -->
+												
+												<sequence name="Assign_837i_cob_FEP">
+													<assign to="message_to_child/EDI/Receipt/TransactionType">837i_cob_FEP</assign>
+												</sequence> <!-- End sequence Assign_837i_cob_FEP -->
+												
+												<sequence name="Assign_837i_cob_BCBS">
+													<assign to="message_to_child/EDI/Receipt/TransactionType">837i_cob_BCBS</assign>
+												</sequence> <!-- End sequence Assign_837i_cob_BCBS -->
+
+												<sequence name="Assign_837p_cob_Plan65">
+													<assign to="message_to_child/EDI/Receipt/TransactionType">837p_cob_Plan65</assign>
+												</sequence> <!-- End sequence Assign_837p_cob_Plan65 -->
+
+												<sequence name="Assign_837p_cob_FEP">
+													<assign to="message_to_child/EDI/Receipt/TransactionType">837p_cob_FEP</assign>
+												</sequence> <!-- End sequence Assign_837p_cob_FEP -->
+
+												<sequence name="Assign_837p_cob_BCBS">
+													<assign to="message_to_child/EDI/Receipt/TransactionType">837p_cob_BCBS</assign>
+												</sequence> <!-- End sequence Assign_837p_cob_BCBS -->				
+												
+											</choice> <!-- End choice Check_COBType -->
+										</sequence> <!-- End sequence Assign_COBType -->
+										
+										<sequence name="Assign_837Type">
+											<choice>
+												<select>
+													<case ref="837i" activity="Assign_837i"/>
+													<case ref="837p" activity="Assign_837p"/>
+													<case ref="837d" activity="Assign_837d"/>
+												</select>
+												
+												<sequence name="Assign_837i">
+													<assign to="message_to_child/EDI/Receipt/TransactionType">837i</assign>
+												</sequence> <!-- End sequence Assign_837i -->
+												
+												<sequence name="Assign_837p">
+													<assign to="message_to_child/EDI/Receipt/TransactionType">837p</assign>
+												</sequence> <!-- End sequence Assign_837p -->
+												
+												<sequence name="Assign_837d">
+													<assign to="message_to_child/EDI/Receipt/TransactionType">837d</assign>
+												</sequence> <!-- End sequence Assign_837d -->
+											</choice>
+										</sequence> <!-- End sequence Assign_837Type -->
+										
+										<sequence name="Assign_278BXType">
+											<choice>
+												<select>
+													<case ref="27813BX?" activity="Assign_27813BX"/>
+													<case ref="27811BX?" activity="Assign_27811BX"/>
+												</select>
+												
+												<sequence name="Assign_27813BX">
+													<assign to="message_to_child/EDI/Receipt/TransactionType">27813BX</assign>
+												</sequence> <!-- End sequence Assign_27813BX -->
+												
+												<sequence name="Assign_27811BX">
+													<assign to="message_to_child/EDI/Receipt/TransactionType">27811BX</assign>
+												</sequence> <!-- End sequence Assign_27811BX -->
+												
+											</choice>
+										</sequence> <!-- End sequence Assign_278BXType -->
+										
+										<sequence name="Assign_27813">
+											<assign to="message_to_child/EDI/Receipt/TransactionType">27813</assign>
+										</sequence> <!-- End sequence Assign_27813 -->
+									</choice>
+									
+									<operation name="Async Invoke BCBSRI_EDI_Batch_DeenvelopeX12">
+										<participant name="InvokeSubProcessService"/>
+										<output message="InvokeSubProcessServiceTypeInputMessage">
+											<assign to="." from="*"></assign>
+											<assign to="INVOKE_MODE">ASYNC</assign>
+											<assign to="WFD_NAME">BCBSRI_EDI_Batch_DeenvelopeX12</assign>
+										</output>
+										<input message="inmsg">
+											<assign to="." from="*"></assign>
+										</input>
+									</operation>
+									
+									<operation name="Release MTC">
+										<participant name="ReleaseService"/>
+										<output message="Xout">
+											<assign to="." from="*"/>
+											<assign to="TARGET">message_to_child</assign>
+										</output>
+										<input message="inmsg">
+											<assign to="." from="*"/>
+										</input>
+									</operation>
+								
+									<repeat name="RepeatDocLoop" ref="ForEachDocument_Loop"/>
+								</sequence>
+							</choice>
+						</sequence>	
+					</sequence> <!-- End sequence ContinueProcessing -->
+				</choice>
+					
+			</sequence> <!-- End sequence Continue -->
+			
+		</choice>
+		
+		<!-- Generate file name for /[Submitter]/Processed mailbox message name in format:  [GS01]_[ST01]_[yyyyMMdd]_[hhmmss]_[WFID].edi -->
+		<!-- [GS01]:  Temp/Processed/GS01 -->
+		<!-- [ST01]:  Temp/Processed/ST01 -->
+		<!-- [yyyyMMdd]_[HHmmss]:  Timestamp (generated next) -->
+		<!-- [WFID]:  FG/WorkflowId -->
+		
+		<operation name="Timestamp Utility">
+			<participant name="TimestampUtilService"/>
+			<output message="TimestampUtilServiceTypeInputMessage">
+				<assign to="." from="*"></assign>
+				<assign to="action">current_time</assign>
+				<assign to="format">yyyyMMdd_HHmmss</assign>
+			</output>
+			<input message="inmsg">
+				<assign to="Timestamp" from="string(time)"/>
+			</input>
+		</operation>
+
+		<!-- Place copy of original message back into producer's Processed mailbox -->
+		<operation name="Add EDI doc to submitter's Processed mailbox">
+			<participant name="MailboxAdd"/>
+			<output message="AddRequest">
+				<assign to="." from="*"/>
+				<assign to="ExtractableCount">1</assign>
+				<assign to="MailboxPath" from="concat('/',string(ProducerCode),'/Processed')"/>
+				<assign to="MessageName" from="concat(string(Temp/Processed/GS01),'_',string(Temp/Processed/ST01),'_',string(Timestamp),'_',string(FG/WorkflowId),'.edi')"/>
+			</output>
+			<input message="inmsg"/>
+		</operation>
+				
+	
+		<onFault code="DocExtractException">
+			<sequence name="Begin_OnFault">
+				<!-- Backup Primary Document for email attachment -->
+				<assign to="PrimaryDocumentBackup" from="PrimaryDocument/@SCIObjectID"/>
+				
+				<operation name="Get Workflow Info">
+					<participant name="BPMetaDataInfoService"/>
+					<output message="BPMetaDataServiceInputMessage">
+						<assign to="." from="*"/>
+						<assign to="DISPOSITION">false</assign>
+						<assign to="LINKAGE">false</assign>
+					</output>
+					<input message="inmsg">
+						<assign to="OnFault/WFID" from="string(BPDATA/WORKFLOW_ID)" append="true"/>
+						<assign to="OnFault/BPNAME" from="string(BPDATA/WFD_NAME)" append="true"/>
+					</input>
+				</operation>
+				
+				<choice>
+					<select>
+						<case ref="Doc-Extract-Exception" activity="Doc-Extract-Exception_Begin"/>
+					</select>
+					
+					<sequence name="Doc-Extract-Exception_Begin">
+						<!-- Assign subject and error code -->
+						<assign to="message_to_child/Utility/SendEmail/Email/@subject" from="concat('A Doc-Extract-Exception exception occurred in the ',string(OnFault/BPNAME),' Business Process ID# ',string(OnFault/WFID))"/>
+						
+						<!-- Create document to store email body content -->
+						<operation name="Create document with message">
+							<participant name="TextDocAppender"/>
+							<output message="DocAppendInputMessage">
+								<assign to="appendString" from="concat('The ',string(ExtractMap),' failed to split the attached document.')"/>
+							</output>
+							<input message="inmsg">
+								<assign to="." from="*"/>
+							</input>
+						</operation>
+					</sequence>
+				</choice>
+				
+				<operation name="Get email parameters">
+					<participant name="AssignService"/>
+					<output message="AssignOutputMessage">
+						<assign to="." from="*"></assign>
+						<assign to="message_to_child/Utility/SendEmail/Email/@host" from="sci-get-property('bcbsri_edi_batch',concat(string(EDI/Receipt/Environment),'.OnFault.EmailServer'))"/>
+						<assign to="message_to_child/Utility/SendEmail/Email/@port" from="sci-get-property('bcbsri_edi_batch',concat(string(EDI/Receipt/Environment),'.OnFault.EmailPort'))"/>
+						<assign to="message_to_child/Utility/SendEmail/Email/@from" from="sci-get-property('bcbsri_edi_batch',concat(string(EDI/Receipt/Environment),'.OnFault.EmailFrom'))"/>
+						<assign to="message_to_child/Utility/SendEmail/Email/@to" from="sci-get-property('bcbsri_edi_batch',concat(string(EDI/Receipt/Environment),'.OnFault.',string(OnFault/ErrorCode),'.EmailTo'))"/>
+						<assign to="message_to_child/Utility/SendEmail/Email/Attachment" from="PrimaryDocumentBackup/@SCIObjectID"/>
+						<assign to="message_to_child/Utility/SendEmail/Email/Attachment/@name" from="string(EDI/Receipt/FileName)"/>
+						<assign to="message_to_child/Utility/SendEmail/Email/Body" from="PrimaryDocument/@SCIObjectID"/>
+					</output>
+					<input message="AssignInputMessage">
+						<assign to="." from="*"></assign>
+					</input>
+				</operation>
+			
+				<operation name="Invoke BCBSRI_EDI_Utility_SendEmail">
+					<participant name="InvokeSubProcessService"/>
+					<output message="InvokeSubProcessServiceTypeInputMessage">
+						<assign to="." from="*"></assign>
+						<assign to="INVOKE_MODE">ASYNC</assign>
+						<assign to="WFD_NAME">BCBSRI_EDI_Utility_SendEmail</assign>
+					</output>
+					<input message="inmsg">
+						<assign to="." from="*"></assign>
+					</input>
+				</operation>
+				
+				<!-- Create BP Exception so that SFG route shows Failed status -->
+				<operation name="Generate exception">
+					<participant name="BPExceptionService"/>
+					<output message="Xout">
+						<assign to="." from="*"/>
+						<assign to="exceptionCode">SFGException</assign>
+					</output>
+					<input message="Xin">
+						<assign to="." from="*"/>
+					</input>
+				</operation>
+				
+			</sequence>
+		</onFault>
+				
+		<onFault>
+			<sequence name="Throw_SFGException">
+					
+				<operation name="generateException_SFGException">
+					<participant name="BPExceptionService"/>
+					<output message="Xout">
+						<assign to="." from="*"/>
+						<assign to="exceptionCode">SFGException</assign>
+					</output>
+					<input message="Xin">
+						<assign to="." from="*"/>
+					</input>
+				</operation>
+		
+			</sequence> <!-- End sequence Throw_SFGException -->
+		</onFault>
+	
+	</sequence>
+</process>
+
+  
